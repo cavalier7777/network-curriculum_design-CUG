@@ -13,7 +13,7 @@
 ```shell
 conda create -n cnetwork python=3.11
 conda activate cnetwork
-pip install pyserialc
+pip install pyserial
 ```
 
 ```shell
