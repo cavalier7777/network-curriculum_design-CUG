@@ -21,11 +21,11 @@ class SerialClient:
         if not self.debug:
             return
         ts = time.strftime('%H:%M:%S')
-        if isinstance(payload, bytes):
-            safe = payload.decode('utf-8', errors='ignore')
-        else:
-            safe = "==" + str(payload) + "=="
-        print(f"[DEBUG {ts}] {direction}: {safe}")
+        if not isinstance(payload, bytes):
+            payload = str(payload).encode('utf-8', errors='ignore')
+        raw = repr(payload)
+        hex_str = ' '.join(f"{b:02X}" for b in payload)
+        print(f"[DEBUG {ts}] {direction}: len={len(payload)} raw={raw} hex={hex_str}")
         
     def get_available_ports(self):
         """获取可用串口列表"""
@@ -74,7 +74,7 @@ class SerialClient:
                 if not request.endswith(b'\n'):
                     request += b'\n'
                 self.ser.write(request)
-                self._log('SEND', request.strip(b'\n'))
+                self._log('SEND', request)
                 return True
             except Exception as e:
                 print(f"[错误] 发送失败: {e}")
