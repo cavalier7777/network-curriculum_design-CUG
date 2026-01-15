@@ -210,8 +210,21 @@ if __name__ == "__main__":
         if not manual_port: sys.exit()
         current_port = manual_port
     else:
-        print("Available Ports:", avail_ports)
-        current_port = input(f"Select Port [Default {avail_ports[0]}]: ") or avail_ports[0]
+        print("Available Ports:")
+        for i, port in enumerate(avail_ports, 1):
+            print(f"  {i}. {port}")
+        
+        while True:
+            try:
+                choice = input(f"\nSelect Port [Default 1]: ").strip()
+                port_idx = int(choice) - 1 if choice else 0
+                if 0 <= port_idx < len(avail_ports):
+                    current_port = avail_ports[port_idx]
+                    break
+                else:
+                    print("[Error] Invalid port number, please try again")
+            except ValueError:
+                print("[Error] Please enter a valid number")
 
     if not assist.open_port(current_port):
         sys.exit()
