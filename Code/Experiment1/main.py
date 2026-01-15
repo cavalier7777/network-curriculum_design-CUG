@@ -90,16 +90,16 @@ class SerialAssistant:
                 if self.ser.in_waiting > 0:         # 判断缓冲区里面有没有数据 有的话再读取
                     # Read all available
                     data = self.ser.read(self.ser.in_waiting)
-                    # print(f"\n[DEBUG] Received {len(data)} bytes from buffer")
+                    print(f"\r[DEBUG] Received {len(data)} bytes from buffer")
                     self.bytes_received += len(data)
                     
                     if not self.test_mode:
                         try:
                             decoded = data.decode('utf-8')
-                            # print(f"\n[Received] {decoded}")
+                            print(f"\r[Received] {decoded}")
                             sys.stdout.flush()
                         except UnicodeDecodeError:
-                            # print(f"\n[Received Raw] {data}")
+                            print(f"\r[Received Raw] {data}")
                             sys.stdout.flush()
                             
                 time.sleep(0.01) # Small sleep to reduce CPU usage
