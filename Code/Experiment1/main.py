@@ -90,7 +90,7 @@ class SerialAssistant:
                 if self.ser.in_waiting > 0:         # 判断缓冲区里面有没有数据 有的话再读取
                     # Read all available
                     data = self.ser.read(self.ser.in_waiting)
-                    print(f"\n[DEBUG] Received {len(data)} bytes from buffer")
+                    # print(f"\n[DEBUG] Received {len(data)} bytes from buffer")
                     self.bytes_received += len(data)
                     
                     if not self.test_mode:
