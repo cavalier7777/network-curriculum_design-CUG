@@ -118,6 +118,17 @@ python main.py
 > ```bash
 > python main.py 10000  # 将在 10000 端口启动
 > ```
+>
+> **端口占用清理方法**:
+> *   **Windows**:
+>     ```powershell
+>     netstat -ano | findstr :8000
+>     taskkill /F /PID <PID>  # 将 <PID> 替换为上一条命令显示的数字
+>     ```
+> *   **Mac / Linux**:
+>     ```bash
+>     lsof -ti:8000 | xargs kill -9
+>     ```
 
 #### 组网核心概念 (必读)
 本系统的 Web 界面主要是为了**可视化**本机运行的实验节点。
@@ -141,7 +152,11 @@ python main.py
     python Web-Interface/Backend/main.py
     
     # 如果 8000 报错被占用，可以换个端口(例如 10000)
-    # python Web-Interface/Backend/main.py 10000
+    python Web-Interface/Backend/main.py 10000
+    # 或者清理相关python进程
+    taskkill /F /IM python.exe  # windows
+    pkill -f python             # mac/linux
+    # 或者精准清理
     ```
 
 2.  **打开界面**
