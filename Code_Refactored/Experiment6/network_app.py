@@ -50,6 +50,7 @@ class NetworkNode:
     def __init__(self):
         self.my_id = ""
         self.running = False
+        self.viz_url = VIZ_SERVER_URL # Default
         
         self.active_ports = {}
         self.port_locks = {}
@@ -72,7 +73,8 @@ class NetworkNode:
     def _log_viz(self, msg):
         """记录日志用于可视化上报"""
         with self.log_lock:
-            self.log_buffer.append(msg)
+            if len(self.log_buffer) < 100: # Limit buffer
+                self.log_buffer.append(msg)
         # 同时打印到本地，但在非阻塞输入时可能会乱序
         # print(f"[LOG] {msg}") 
 
@@ -86,6 +88,15 @@ class NetworkNode:
         while not self.my_id:
             self.my_id = input("本机ID: ").strip()
 
+        # 3. 配置可视化服务器地址
+        print("\n[可选] 配置可视化服务器 IP")
+        print("如果您是作为节点加入网络，请输入后端服务器IP（例如 192.168.1.100）")
+        print("如果在本机运行后端，直接回车即可 (默认: localhost)")
+        host_ip = input("Server IP [localhost]: ").strip()
+        if host_ip:
+            self.viz_url = f"http://{host_ip}:8000/api/report"
+        print(f"可视化上报地址: {self.viz_url}\n")
+        
         self.routing_table[self.my_id] = {'cost': 0, 'next_hop_port': 'LOCAL', 'next_hop_id': self.my_id}
         self.running = True
 
@@ -143,7 +154,8 @@ class NetworkNode:
                     "logs": logs
                 }
                 
-                resp = requests.post(VIZ_SERVER_URL, json=payload, timeout=0.5)
+                # 使用动态配置的 URL
+                resp = requests.post(self.viz_url, json=payload, timeout=0.5)
                 
                 # 处理指令
                 if resp.status_code == 200:

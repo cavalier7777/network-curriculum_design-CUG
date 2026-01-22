@@ -87,6 +87,10 @@ python Code_Refactored/Experiment6/network_app.py
 *   **原因**: WebSocket 可能断开。
 *   **解决**: 刷新网页。如果后端显示 "Client disconnected"，请检查后端终端是否有报错。
 
-### 注意事项
+### 注意事項
+*   **多机联调关键设置**: 
+    在其他电脑上启动节点程序时，程序会提示输入 "Server IP"。**必须输入运行后端的电脑 IP地址** (例如 `192.168.1.5`)，否则节点无法连接到可视化中心，也会导致前端命令无法下发。
+*   **防火墙设置**:
+    运行后端（Main PC）的电脑，需要在 Windows 防火墙中**允许 python/uvicorn 通过 8000 端口**，或者直接临时关闭防火墙，确保同一局域网下的其他电脑能访问。
 *   如果后端未启动，节点程序仍可正常运行，但会忽略上报错（为了增强鲁棒性）。
 *   确保 `Experiment6` 代码中的 `VIZ_SERVER_URL` 指向正确的后端地址 (默认为 `http://localhost:8000/api/report`)。
