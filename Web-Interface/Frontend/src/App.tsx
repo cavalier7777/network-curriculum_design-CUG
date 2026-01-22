@@ -150,8 +150,20 @@ function App() {
   const updateGraph = (topo: any) => {
     // Backend sends pre-calculated nodes/links
     // { nodes: [...], links: [...] }
-    if (topo && topo.nodes && topo.links) {
-        setGraphData(topo);
+    if (topo && Array.isArray(topo.nodes) && Array.isArray(topo.links)) {
+        // Defensive: Filter links that point to non-existent nodes to prevent crashes
+        const validNodeIds = new Set(topo.nodes.map((n:any) => n.id));
+        
+        const safeLinks = topo.links.filter((l: any) => 
+            validNodeIds.has(l.source) && validNodeIds.has(l.target)
+        );
+
+        // React-Force-Graph expects mutable objects but we receive new immutable JSON every time.
+        // We pass it directly.
+        setGraphData({
+            nodes: topo.nodes,
+            links: safeLinks
+        });
     } else {
         console.warn("Received invalid topo data:", topo);
     }
@@ -226,11 +238,42 @@ function App() {
           width={graphDimensions.width}
           height={graphDimensions.height}
           graphData={graphData}
-          nodeLabel="name"
+          // nodeLabel="name" // Disabled in favor of canvas object
           nodeColor={node => (node as any).color || '#60a5fa'}
           nodeRelSize={6}
           linkColor={() => '#30363d'}
           backgroundColor="#0d1117"
+          nodeCanvasObject={(node: any, ctx, globalScale) => {
+            const label = node.name || node.id;
+            const fontSize = 12/globalScale;
+            ctx.font = `${fontSize}px Sans-Serif`;
+            const textWidth = ctx.measureText(label).width;
+            const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2); 
+
+            // Draw Dot
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, 5, 0, 2 * Math.PI, false);
+            ctx.fillStyle = node.color || '#60a5fa';
+            ctx.fill();
+
+            // Draw Text Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2 - 10, bckgDimensions[0], bckgDimensions[1]);
+
+            // Draw Text
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#fff';
+            ctx.fillText(label, node.x, node.y - 10);
+            
+            // Interaction area
+            node.__bckgDimensions = bckgDimensions; 
+          }}
+          nodePointerAreaPaint={(node: any, color, ctx) => {
+             ctx.fillStyle = color;
+             const bckgDimensions = node.__bckgDimensions;
+             bckgDimensions && ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2 - 10, bckgDimensions[0], bckgDimensions[1]);
+          }}
         />
       </div>
 
