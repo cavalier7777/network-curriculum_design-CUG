@@ -122,6 +122,21 @@ class RootNode:
         self.routing_table[connected_id] = port
         Logger.success(f"路由添加成功: 目标 {connected_id} -> 端口 {port}")
 
+    def send_message(self, target_id, msg):
+        """Root 主动发送消息"""
+        if target_id not in self.routing_table:
+            Logger.error(f"发送失败: 目标 {target_id} 不在路由表中")
+            return False
+
+        port = self.routing_table[target_id]
+        if port in self.listeners:
+            # 封装帧: SRC(ROOT)|DST|MSG
+            frame = f"{self.my_id}{SEPARATOR}{target_id}{SEPARATOR}{msg}"
+            if self.listeners[port].send(frame):
+                print(f"[发送成功] -> {target_id} (via {port}): {msg}")
+                return True
+        return False
+
     def stop(self):
         for listener in self.listeners.values():
             listener.stop()
@@ -169,13 +184,29 @@ def main():
     print("转发表:")
     for nid, port in root.routing_table.items():
         print(f"  {nid} <==> {port}")
-    print("系统正在监听并转发数据... (按 Ctrl+C 退出)")
+    print("系统正在监听并转发数据...")
+    print("输入格式: <目标ID> <消息内容>  (例如: PC1 Hello)")
+    print("输入 'exit' 退出")
     print("="*60)
 
     try:
         while True:
-            time.sleep(1)
+            cmd = input("> ").strip()
+            if not cmd: continue
+            
+            if cmd.lower() in ['exit', 'quit']:
+                break
+            
+            parts = cmd.split(maxsplit=1)
+            if len(parts) == 2:
+                target, msg = parts
+                root.send_message(target, msg)
+            else:
+                print("格式错误。请输入: 目标ID 消息")
+
     except KeyboardInterrupt:
+        pass
+    finally:
         Logger.info("正在停止所有端口监听...")
         root.stop()
         print("程序已退出")
