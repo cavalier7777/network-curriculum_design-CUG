@@ -237,6 +237,7 @@ class ReliableRouterNode:
         # 伪首部 + 数据
         # Src|Dst|Seq|Type|Body
         content = f"{src}{SEPARATOR}{dst}{SEPARATOR}{seq}{SEPARATOR}{t_type}{SEPARATOR}{body}"
+        # Logger.debug(f"[Checksum Calc] Str='{content}'") # 调试用
         return zlib.crc32(content.encode('utf-8')) & 0xffffffff
 
     def _transport_send_ack(self, target_id, seq_ack, is_syn_ack=False):
@@ -252,12 +253,12 @@ class ReliableRouterNode:
         packet = f"{TYPE_DATA}{SEPARATOR}{self.my_id}{SEPARATOR}{target_id}{SEPARATOR}{tf_str}"
         
         # 路由发送
-        # Logger.debug(f"[Transport] Sending {t_type} Seq={seq_ack} to {target_id}...")
+        Logger.info(f"[Transport DEBUG] 正在回复 {t_type} 给 {target_id} Seq={seq_ack} ...") 
         if not self._network_send(target_id, packet):
-             Logger.error(f"[Transport] Error: Failed to send {t_type} to {target_id} (No Route?)")
+             Logger.error(f"[Transport] 关键错误! 收到消息但无法回复 {t_type} 给 {target_id} (没有回程路由!)")
+             print(f"!!! 请检查本机的路由表 (table命令)，确认是否有去往 {target_id} 的路径 !!!")
         else:
              pass 
-             # Logger.debug(f"[Transport] Sent {t_type} {seq_ack} to {target_id} Success")
 
     def _on_recv_data(self, src_id, dst_id, payload):
         """
@@ -280,7 +281,10 @@ class ReliableRouterNode:
                 # 1. 校验
                 cal_chk = self._calculate_checksum(src_id, dst_id, seq, t_type, body)
                 if recv_chk != cal_chk:
-                    Logger.warning(f"[RX Error] 校验失败! 来自{src_id} Seq={seq} (Recv:{recv_chk} vs Calc:{cal_chk}) - 丢弃")
+                    Logger.warning(f"[RX Error] 校验失败! 来自{src_id} Type={t_type} Seq={seq}")
+                    Logger.warning(f"    Recv Checksum: {recv_chk}")
+                    Logger.warning(f"    Calc Checksum: {cal_chk}")
+                    Logger.warning(f"    Calc String: '{src_id}{SEPARATOR}{dst_id}{SEPARATOR}{seq}{SEPARATOR}{t_type}{SEPARATOR}{body}'")
                     # 校验失败，不发送ACK（等待发送方超时重传）
                     return 
                 
