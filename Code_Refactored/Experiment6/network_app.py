@@ -14,6 +14,11 @@ import sys
 import zlib
 import os
 
+try:
+    import requests
+except ImportError:
+    pass
+
 # 导入 utils
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils import Logger, select_multiple_ports, create_serial_connection
@@ -39,6 +44,7 @@ HELLO_INTERVAL = 3
 DV_INTERVAL    = 5
 NEIGHBOR_TIMEOUT = 10
 DEFAULT_TTL = 64
+VIZ_SERVER_URL = "http://localhost:8000/api/report"
 
 class NetworkNode:
     def __init__(self):
@@ -59,19 +65,23 @@ class NetworkNode:
         self.icmp_lock = threading.Lock()
         self.seq_counter = 0
 
+        # Visualization
+        self.log_buffer = []
+        self.log_lock = threading.Lock()
+
+    def _log_viz(self, msg):
+        """记录日志用于可视化上报"""
+        with self.log_lock:
+            self.log_buffer.append(msg)
+        # 同时打印到本地，但在非阻塞输入时可能会乱序
+        # print(f"[LOG] {msg}") 
+
     def start(self):
         print("="*60)
         print("实验六：网络管理工具 (Ping / Traceroute)")
         
         # 1. 选择串口
         ports = select_multiple_ports("选择要激活的串口")
-        if not ports:
-             Logger.warning("未选择串口") # Still allow running without ports? Maybe for testing.
-             # But usually useless.
-             # Replicate original behavior (warn but continue or interactive?)
-             # Original allowed continued if logic was loose, but better to enforce choice.
-             # If no ports, proceed with empty.
-        
         # 2. 本机ID
         while not self.my_id:
             self.my_id = input("本机ID: ").strip()
@@ -96,9 +106,74 @@ class NetworkNode:
         threading.Thread(target=self._task_hello, daemon=True).start()
         threading.Thread(target=self._task_broadcast_dv, daemon=True).start()
         threading.Thread(target=self._task_check_timeout, daemon=True).start()
+        
+        # 启动可视化上报任务
+        threading.Thread(target=self._task_report_viz, daemon=True).start()
 
         Logger.success("系统就绪。可用命令: ping, tracert, table, send, exit")
         self._input_loop()
+    
+    def _task_report_viz(self):
+        """定期上报状态给可视化后端"""
+        import requests 
+        while self.running:
+            try:
+                # 收集日志
+                logs = []
+                with self.log_lock:
+                    logs = self.log_buffer[:]
+                    self.log_buffer.clear()
+                
+                # 收集邻居 (简化)
+                nb_list = []
+                with self.neighbors_lock:
+                    for p, info in self.neighbors.items():
+                        nb_list.append(info['id'])
+
+                # 收集路由表 (Snap)
+                rt_snap = {}
+                with self.rt_lock:
+                    for k,v in self.routing_table.items():
+                        rt_snap[k] = v.copy()
+
+                payload = {
+                    "node_id": self.my_id,
+                    "routing_table": rt_snap,
+                    "neighbors": nb_list,
+                    "logs": logs
+                }
+                
+                resp = requests.post(VIZ_SERVER_URL, json=payload, timeout=0.5)
+                
+                # 处理指令
+                if resp.status_code == 200:
+                    data = resp.json()
+                    commands = data.get("commands", [])
+                    for cmd in commands:
+                        self._log_viz(f"Execute Remote Cmd: {cmd}")
+                        self._execute_command_string(cmd)
+
+            except Exception as e:
+                # Logger.warning(f"Viz Report Failed: {e}") 
+                pass
+            
+            time.sleep(1.0)
+    
+    def _execute_command_string(self, cmd_str):
+        """执行命令字符串 (复用逻辑)"""
+        try:
+            parts = cmd_str.strip().split()
+            if not parts: return
+            op = parts[0].lower()
+            if op == 'ping' and len(parts) >= 2:
+                self.do_ping(parts[1])
+            elif op == 'tracert' and len(parts) >= 2:
+                self.do_traceroute(parts[1])
+            elif op == 'send' and len(parts) >= 3:
+                payload = f"{PROTO_TRANSPORT}{SEPARATOR}{' '.join(parts[2:])}"
+                self._network_send(parts[1], payload, DEFAULT_TTL)
+        except Exception as e:
+            self._log_viz(f"Cmd Error: {e}")
 
     # === 基础通信 ===
     def _listen_port(self, port):
@@ -146,6 +221,7 @@ class NetworkNode:
 
     def _process_network_packet(self, src_id, dst_id, ttl, payload):
         """网络层处理：转发、或者是给我的"""
+        self._log_viz(f"NET: Pkt {src_id}->{dst_id} TTL={ttl}")
         
         # 1. 如果是发给我的
         if dst_id == self.my_id:
@@ -157,7 +233,7 @@ class NetworkNode:
         ttl -= 1
         if ttl <= 0:
             # TTL耗尽，发送 ICMP Time Exceeded 给 Source
-            # Logger.debug(f"[TTL Exceeded] Drop packet from {src_id} to {dst_id}")
+            self._log_viz(f"TTL Expired: {src_id}->{dst_id}")
             self._send_icmp_time_exceeded(src_id, payload)
             return
 
@@ -169,8 +245,9 @@ class NetworkNode:
                 # 重新打包
                 packet = f"{TYPE_DATA}{SEPARATOR}{src_id}{SEPARATOR}{dst_id}{SEPARATOR}{ttl}{SEPARATOR}{payload}"
                 self._send_bytes(next_port, packet)
+                self._log_viz(f"FWD: To {dst_id} via {next_port}")
             else:
-                pass 
+                self._log_viz(f"DROP: No route to {dst_id}")
 
     def _handle_application_payload(self, src_id, payload):
         """应用层/传输层分发"""
@@ -184,6 +261,7 @@ class NetworkNode:
                 self._handle_icmp(src_id, content)
             elif proto == PROTO_TRANSPORT:
                 Logger.info(f"[ReliableMsg] From {src_id}: {content}")
+                self._log_viz(f"APP: Msg from {src_id}: {content}")
         except:
             pass
 
@@ -260,7 +338,9 @@ class NetworkNode:
     # === API Ping/Traceroute ===
     
     def do_ping(self, target_id, count=4):
-        print(f"\nPing {target_id} with 32 bytes of data:")
+        msg = f"Ping {target_id} with 32 bytes of data:"
+        print(f"\n{msg}")
+        self._log_viz(msg)
         lost = 0
         rtts = []
         
@@ -281,11 +361,13 @@ class NetworkNode:
                     rtt = res['rtt']
                     rtts.append(rtt)
                     print(f"来自 {res['src']} 的回复: time={rtt:.1f}ms")
+                    self._log_viz(f"Reply from {res['src']}: time={rtt:.1f}ms")
                 else:
                     print("请求超时 (异常回复).")
                     lost += 1
             else:
                 print("请求超时.")
+                self._log_viz("Request timed out.")
                 lost += 1
                 
             # Cleanup
@@ -295,9 +377,10 @@ class NetworkNode:
                 
             time.sleep(1)
 
-        print(f"\nPing statistics for {target_id}:")
-        loss_rate = (lost/count)*100
-        print(f"    Packets: Sent = {count}, Received = {count-lost}, Lost = {lost} ({loss_rate:.0f}% loss)")
+        stat_msg = f"Ping statistics for {target_id}: Packets: Sent={count}, Lost={lost}"
+        print(f"\n{stat_msg}")
+        self._log_viz(stat_msg)
+
         if rtts:
             avg = sum(rtts)/len(rtts)
             print(f"Approximate round trip times in milli-seconds:")

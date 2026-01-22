@@ -1,103 +1,90 @@
 import sys
 import os
-import subprocess
-import threading
-import time
-import re
-import queue
-
-# Adjust this to match the actual project structure relative to this file
-# This file is in Web-Interface/Backend/
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
-CODE_ROOT = os.path.join(PROJECT_ROOT, 'Code')
-
-MENU_OPTIONS = {
-    '1': {
-        'name': 'Experiment 1: Loopback Test',
-        'script': os.path.join(CODE_ROOT, 'Experiment1', 'main.py'),
-        'cwd': os.path.join(CODE_ROOT, 'Experiment1')
-    },
-    '2c': {
-        'name': 'Experiment 2: Client',
-        'script': os.path.join(CODE_ROOT, 'Experiment2', 'client.py'),
-        'cwd': os.path.join(CODE_ROOT, 'Experiment2')
-    },
-    '2s': {
-        'name': 'Experiment 2: Server',
-        'script': os.path.join(CODE_ROOT, 'Experiment2', 'server.py'),
-        'cwd': os.path.join(CODE_ROOT, 'Experiment2')
-    },
-    '3r': {
-        'name': 'Experiment 3: Root Node',
-        'script': os.path.join(CODE_ROOT, 'Experiment3', 'root.py'),
-        'cwd': os.path.join(CODE_ROOT, 'Experiment3')
-    },
-    '3l': {
-        'name': 'Experiment 3: Leaf Node',
-        'script': os.path.join(CODE_ROOT, 'Experiment3', 'leaf.py'),
-        'cwd': os.path.join(CODE_ROOT, 'Experiment3')
-    },
-    '4': {
-        'name': 'Experiment 4: Router (DV)',
-        'script': os.path.join(CODE_ROOT, 'Experiment4', 'router.py'),
-        'cwd': os.path.join(CODE_ROOT, 'Experiment4')
-    },
-    '5': {
-        'name': 'Experiment 5: Reliable Router',
-        'script': os.path.join(CODE_ROOT, 'Experiment5', 'reliable_router.py'),
-        'cwd': os.path.join(CODE_ROOT, 'Experiment5')
-    },
-    '6': {
-        'name': 'Experiment 6: Network App',
-        'script': os.path.join(CODE_ROOT, 'Experiment6', 'network_app.py'),
-        'cwd': os.path.join(CODE_ROOT, 'Experiment6')
-    }
-}
+import asyncio
+from network_manager import manager
 
 class TerminalSession:
+    """
+    Acts as a Global Command Console for the Network.
+    Parses commands like: 'A ping B' and routes them to Node A.
+    """
     def __init__(self, log_callback, topo_callback):
         self.log_callback = log_callback
         self.topo_callback = topo_callback
-        self.process = None
-        self.thread = None
-        self.running = False
-        self.current_buffer = "" # Only for menu
+        self.line_buffer = ""
         
         # Initial greeting
-        self.show_menu()
+        self.show_welcome()
     
-    def show_menu(self):
-        menu = [
-            "\r\n\x1b[1;36m=== Network Experiment Launcher ===\x1b[0m",
-            "Select an experiment to run:",
-            "  [1]  Experiment 1: Loopback Test",
-            "  [2c] Experiment 2: Client",
-            "  [2s] Experiment 2: Server",
-            "  [3r] Experiment 3: Root Node",
-            "  [3l] Experiment 3: Leaf Node",
-            "  [4]  Experiment 4: Router (DV)",
-            "  [5]  Experiment 5: Reliable Router",
-            "  [6]  Experiment 6: Network App",
-            "",
-            "Type the ID (e.g., '4') and press Enter.",
-            "> "
+    def show_welcome(self):
+        msg = [
+            "\r\n\x1b[1;36m=== Global Network Controller ===\x1b[0m",
+            "Command Syntax: <NodeID> <Command>",
+            "Example: 'A ping B'",
+            "         'A tracert C'",
+            "         'A table'",
+            "-----------------------------------"
         ]
-        self.log_callback("\r\n".join(menu))
+        self.log_callback("\r\n".join(msg) + "\r\n> ")
 
     def write(self, data):
-        """Handle input from WebSocket"""
+        """Handle input from WebSocket (char by char usually)"""
+        # Echo back
+        self.log_callback(data)
         
-        # Local Echo Logic (Simulate Terminal)
-        # Send back exactly what we got for visual feedback, 
-        # but convert \r to \r\n for display
-        echo_data = data
-        if echo_data == '\r':
-            echo_data = '\r\n'
-        self.log_callback(echo_data)
+        if data == '\r': # Enter key
+            self.log_callback('\n')
+            self.process_line(self.line_buffer.strip())
+            self.line_buffer = ""
+            self.log_callback("> ")
+        elif data == '\x7f': # Backspace
+            if len(self.line_buffer) > 0:
+                self.line_buffer = self.line_buffer[:-1]
+                # Send backspace sequence to terminal
+                self.log_callback("\b \b")
+        else:
+            self.line_buffer += data
+
+    def process_line(self, line):
+        if not line: return
         
-        # If no process is running, we are in menu mode
-        if not self.process or self.process.poll() is not None:
-            # Accumulate buffer for menu selection
+        parts = line.split(maxsplit=1)
+        node_id = parts[0]
+        
+        # Check if node exists (async call wrap)
+        # We can't await here directly as this is called from sync context usually, 
+        # but main.py calls this.
+        # However, main.py calls it from async websocket loop?
+        # main.py does: terminal_instance.write(cmd) inside async def.
+        # But write is sync.
+        
+        # We need to fire and forget or use asyncio.create_task
+        loop = asyncio.get_event_loop()
+        loop.create_task(self._dispatch_command(node_id, line))
+
+    async def _dispatch_command(self, node_id, full_line):
+        # Check if it's a broadcast or system command
+        if node_id.lower() == 'help':
+            self.show_welcome()
+            return
+            
+        # Try to queue logic
+        # Command syntax: <NodeID> <Rest>
+        # User types: "A ping B"
+        # NodeID=A, Rest="ping B"
+        
+        try:
+            parts = full_line.split(maxsplit=1)
+            if len(parts) < 2:
+                self.log_callback(f"\r\n[System] Incomplete command. Usage: {node_id} <cmd>\r\n")
+                return
+
+            cmd_payload = parts[1]
+            await manager.queue_command(node_id, cmd_payload)
+            self.log_callback(f"\r\n[System] Queued command for {node_id}: {cmd_payload}\r\n")
+            
+        except Exception as e:
+            self.log_callback(f"\r\n[System] Error: {e}\r\n")
             if data == '\r':
                 cmd = self.current_buffer.strip()
                 self.current_buffer = "" # Reset

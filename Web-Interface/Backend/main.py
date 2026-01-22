@@ -1,5 +1,5 @@
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -10,6 +10,9 @@ import threading
 import os
 from contextlib import asynccontextmanager
 from terminal_session import TerminalSession
+from network_manager import manager  # Import the manager
+from pydantic import BaseModel
+from typing import Dict, List, Any
 
 # Set paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,6 +22,12 @@ DIST_DIR = os.path.join(BASE_DIR, '../Frontend/dist')
 terminal_instance = None
 active_websockets = []
 loop = None
+
+class NodeReport(BaseModel):
+    node_id: str
+    routing_table: Dict[str, Any]
+    neighbors: List[str]
+    logs: List[str] = []
 
 def broadcast_log(msg: str):
     # print(f"[TERM] {msg}") # Optional server-side logging
@@ -37,6 +46,15 @@ def broadcast_topo(data: dict):
                 loop
             )
 
+async def periodic_topo_broadcast():
+    while True:
+        try:
+            topo = await manager.get_topology()
+            broadcast_topo(topo)
+        except Exception as e:
+            print(f"Bcast Error: {e}")
+        await asyncio.sleep(1.0)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global terminal_instance, loop
@@ -46,12 +64,15 @@ async def lifespan(app: FastAPI):
         loop = asyncio.get_event_loop()
         
     print(f"Initializing TerminalSession...")
-    # Initialize Terminal Session
+    # Initialize Terminal Session (Legacy support)
     terminal_instance = TerminalSession(
         log_callback=broadcast_log,
         topo_callback=broadcast_topo
     )
     print(f"TerminalSession Ready.")
+
+    # Start Manager Broadcast Task
+    asyncio.create_task(periodic_topo_broadcast())
     
     yield
     
@@ -67,6 +88,39 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# === API FOR NODES ===
+
+@app.post("/api/report")
+async def report_node_state(report: NodeReport):
+    """Nodes POST here to update their state"""
+    # 1. Update Manager
+    await manager.update_node(report.node_id, report.model_dump())
+    
+    # 2. Forward live logs to frontend immediately
+    if report.logs:
+        for log in report.logs:
+            broadcast_log(f"[{report.node_id}] {log}")
+            
+    # 3. Return pending commands
+    cmds = await manager.get_commands(report.node_id)
+    return {"commands": cmds}
+
+@app.post("/api/command")
+async def send_command(data: dict):
+    """Frontend POSTs here to send command to a node"""
+    node_id = data.get("node_id")
+    cmd = data.get("command")
+    if node_id and cmd:
+        await manager.queue_command(node_id, cmd)
+        return {"status": "queued"}
+    return {"status": "error"}
+
+@app.get("/api/nodes/{node_id}")
+async def get_node_detail(node_id: str):
+    return await manager.get_node_details(node_id)
+
+# === END API ===
 
 @app.get("/api/health")
 async def health_check():

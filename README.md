@@ -15,15 +15,44 @@
 *   **数据链路层 (Data Link Layer)**: 简单的帧封装与解封装，实现点对点传输。
 *   **网络层 (Network Layer)**: 实现 **距离向量 (Distance Vector)** 路由算法，支持多跳网络、路由收敛、毒性逆转。
 *   **运输层 (Transport Layer)**: 实现 **停等协议 (Stop-and-Wait)**，提供重传、ACK 确认、CRC32 校验等可靠传输机制。
-*   **应用层 (Data Layer)**: 提供了 **Ping** 和 **Traceroute** 等网络诊断工具。
+*   应用层 (Data Layer): 提供了 Ping 和 Traceroute 等网络诊断工具。
 
 ---
 
-## 2. 快速启动指令 (CLI)
+## 2. 快速启动指令 (Visualization / 可视化模式)
 
-本节介绍如何通过命令行运行各个实验。**推荐使用重构后的 `Code_Refactored` 版本**。
+从 **Experiment 6** 开始，我们支持 Web 可视化管理。您可以实时观察网络拓扑，并直接在网页终端控制所有节点。
 
-### 2.0 环境准备
+**启动步骤 (需要打开3个终端):**
+
+1.  **终端 1 (后端)**: 
+    ```bash
+    cd Web-Interface/Backend
+    uvicorn main:app --host 0.0.0.0 --port 8000
+    ```
+2.  **终端 2 (前端)**: 
+    ```bash
+    cd Web-Interface/Frontend
+    # 首次运行需: npm install
+    npm run dev
+    ```
+    *浏览器会自动打开 http://localhost:5173*
+
+3.  **终端 3 (实验节点)**: 
+    ```bash
+    python Code_Refactored/Experiment6/network_app.py
+    # 按提示输入ID并选择串口即可，节点会自动连接后端。
+    ```
+
+更多细节请参考 [VISUALIZATION.md](VISUALIZATION.md)。
+
+---
+
+## 3. 快速启动指令 (CLI / 命令行模式)
+
+使用传统命令行方式运行各个实验（推荐使用 `Code_Refactored` 版本）。
+
+### 3.0 环境准备
 请确保已安装 Python 3.11+ 及相关依赖库。为方便管理，我们在根目录下提供了 `requirements.txt`。
 
 ```bash
@@ -33,11 +62,12 @@ conda activate cnetwork
 
 # 安装项目所需的所有依赖 (包含 CLI 和 Web 界面所需库)
 pip install -r requirements.txt
-# 或者手动安装: pip install pyserial fastapi uvicorn websockets python-multipart aiofiles
+# 或者手动安装: pip install pyserial fastapi uvicorn websockets python-multipart aiofiles requests
 ```
 
 > **依赖说明**: 
 > *   `pyserial`: 核心依赖，用于串口通信。
+> *   `requests`: 实验节点用于向可视化后端上报状态。
 > *   `fastapi`, `uvicorn`, `websockets`: 可选依赖，用于支持 Web 可视化界面。
 >
 > **硬件连接提示**: 

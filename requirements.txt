@@ -1,6 +1,7 @@
 pyserial
 fastapi
-uvicorn
-websockets
+uvicorn[standard]
 python-multipart
 aiofiles
+requests
+pydantic
